@@ -94,3 +94,88 @@ def poetic_chatbot(prompt):
 
 prompt = "What is the next course to be uploaded to 365DataScience?"
 poetic_chatbot(prompt)
+
+# %%
+from langchain.document_loaders import WebBaseLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.vectorstores import FAISS
+
+# Load webpage content: You define a URL and load its HTML content.
+url = "https://365datascience.com/courses/"
+loader = WebBaseLoader(url)
+raw_documents = loader.load()
+# What happens: LangChain fetches the webpage → extracts text → wraps it into Document objects.
+
+# Split the text into smaller chunks
+text_splitter = RecursiveCharacterTextSplitter()
+documents = text_splitter.split_documents(raw_documents)
+# Why: LLMs cannot handle very long text.
+# So the page is split into manageable chunks (usually 500–1000 characters).
+
+# Create embeddings for each chunk
+# Store embeddings in FAISS which is local in memorry vector index
+embeddings = OpenAIEmbeddings(openai_api_key=config.api_key)
+vectorstore = FAISS.from_documents(documents, embeddings)
+# What this does:
+# Converts each text chunk into a numerical vector (embedding).
+# These vectors represent semantic meaning.
+# FAISS is a fast similarity‑search engine.
+# It allows you to later retrieve the most relevant chunks for any query.
+
+# Create a retriever
+retriever = vectorstore.as_retriever()
+# This object lets you ask:
+# “Find the most relevant chunks for this question.”
+
+# Initialize the LLM
+llm = ChatOpenAI(openai_api_key=config.api_key, model="gpt-4.1-mini", temperature=0)
+# temperature=0 → deterministic, factual answers
+
+# Maintain chat history
+chat_history = []
+# You store previous Q&A pairs here.
+
+# User query
+query = "Which course on 365DataScience can help me learn AI?"
+
+# Retrieve relevant documents
+relevant_docs = retriever.invoke(query)
+# FAISS searches the vector database and returns the most relevant chunks. ?
+
+# Build the context
+context = "\n\n".join(doc.page_content for doc in relevant_docs)
+# This is the text the LLM will use to answer the question.
+
+# Build conversation history
+history_text = "\n".join(f"User: {q}\nAssistant: {a}" for q, a in chat_history)
+# This helps maintain continuity in multi‑turn conversations.
+
+# Build the final prompt
+prompt = f"""
+Use the context below to answer the question.
+
+Conversation history:
+{history_text}
+
+Context:
+{context}
+
+Question:
+{query}
+"""
+# This is a standard RAG prompt:
+# Provide context
+# Provide history? Why provide history?
+# Ask the question
+
+# Send prompt to LLM
+response = llm.invoke(prompt)
+# LLM uses the retrieved context to answer.
+
+# Save the answer to chat history
+chat_history.append((query, response.content))
+# This allows future questions to include past conversation.
+
+print(response.content)
